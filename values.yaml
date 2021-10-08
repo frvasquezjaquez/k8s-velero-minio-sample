@@ -1,0 +1,80 @@
+# Whether to deploy the restic daemonset.
+snapshotsEnabled: false
+
+# Whether to deploy the restic daemonset.
+deployRestic: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Init containers to add to the Velero deployment's pod spec. At least one plugin provider image is required.
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.2.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+configuration:
+  # Cloud provider being used (e.g. aws, azure, gcp).
+  provider: aws
+
+  # Parameters for the `default` BackupStorageLocation. See
+  # https://velero.io/docs/v1.6/api-types/backupstoragelocation/
+  backupStorageLocation:
+    provider: aws
+    name: my-minio-server
+    bucket: kubernetes-backup
+    # prefix: poc-server
+    default: true 
+    config: 
+      region: minio
+      s3ForcePathStyle: "true"
+      s3Url: http://<MY_MINIO_SERVER_IP_OR_DOMAIN>:9000
+      publicUrl: http://<MY_MINIO_SERVER_IP_OR_DOMAIN>:9000
+  logLevel: debug
+
+
+##
+## End of backup/snapshot location settings.
+##
+
+# Info about the secret to be used by the Velero deployment, which
+# should contain credentials for the cloud provider IAM account you've
+# set up for Velero.
+credentials:
+  # Whether a secret should be used as the source of IAM account
+  # credentials. Set to false if, for example, using kube2iam or
+  # kiam to provide IAM credentials for the Velero pod.
+  useSecret: true
+  # Name of the secret to create if `useSecret` is true and `existingSecret` is empty
+  name: velero-credentials
+  # Name of a pre-existing secret (if any) in the Velero namespace
+  # that should be used to get IAM account credentials. Optional.
+  secretContents: 
+    cloud: |
+      [default]
+      aws_access_key_id=<MINIO_SERVICE_ACCOUNT_KEY_ID>
+      aws_secret_access_key=<MINIO_SERVICE_ACCOUNT_ACCESS_KEY>
+
+# Backup schedules to create.
+schedules:
+  cluster-manifests-full-backups:
+    disabled: false
+    labels: 
+      backup: full-manifest-backup
+    schedule: "*/5 * * * *"
+    useOwnerReferencesInBackup: true
+    template:
+      ttl: "168h" # Keep the backup by 7 days
+      includedNamespaces:
+      - '*'
+      includedResources:
+      - '*'
+      storageLocation: my-minio-server
